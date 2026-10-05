@@ -1,3 +1,4 @@
+
 import os
 import torch
 from datasets import load_dataset
@@ -6,48 +7,50 @@ from trl import SFTTrainer
 from unsloth import FastLanguageModel, is_bfloat16_supported
 
 # --- КОНФИГУРАЦИЯ QATACLISM 1.0 ---
-MODEL_NAME = "saiddutta69/Qwen2.5-Code-0.5B-Instruct-heretic" # Или "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-Coder-0.5B-Instruct"  # Открытая модель, скачается без токена
 DATASET_NAME = "Techta/backend-code-generator-dataset"
 OUTPUT_DIR = "./Qataclism-1.0"
-MAX_SEQ_LENGTH = 1024 # Увеличим, чтобы модель видела больше контекста кода
+MAX_SEQ_LENGTH = 1024
 
 # --- ЗАГРУЗКА МОДЕЛИ (QLoRA) ---
-# load_in_4bit=True критически важен для экономии памяти
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=MODEL_NAME,
     max_seq_length=MAX_SEQ_LENGTH,
-    dtype=None, # Авто-определение (bf16/fp16)
-    load_in_4bit=True, # 4-битное квантование
+    dtype=None,
+    load_in_4bit=True,
 )
 
 # --- НАСТРОЙКА LoRA ---
 model = FastLanguageModel.get_peft_model(
     model,
-    r=16, # Ранг LoRA (чем выше, тем больше параметров учится)
+    r=16,
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                     "gate_proj", "up_proj", "down_proj"],
     lora_alpha=16,
     lora_dropout=0,
     bias="none",
-    use_gradient_checkpointing="unsloth", # Экономия памяти
+    use_gradient_checkpointing="unsloth",
     random_state=3407,
-    use_rslora=False,
-    loftq_config=None,
 )
 
-# --- ЗАГРУЗКА И ФОРМАТИРОВАНИЕ ДАТАСЕТА ---
+# --- ЗАГРУЗКА ДАТАСЕТА ---
 dataset = load_dataset(DATASET_NAME, split="train")
 
-# Функция форматирования: превращаем задачу в диалог
+# --- ФОРМАТИРОВАНИЕ ---
 def formatting_prompts_func(examples):
-    instructions = examples["task"] # Или examples["instruction"], зависит от колонок
-    outputs = examples["solution"] # Или examples["output"]
+    # Подстраиваемся под реальные колонки датасета
+    instructions = examples.get("task") or examples.get("instruction") or examples.get("prompt")
+    outputs = examples.get("solution") or examples.get("output") or examples.get("code")
     texts = []
     for instruction, output in zip(instructions, outputs):
-        # Стандартный формат чата Qwen
-        text = f"<|im_start|>system\nYou are Qataclism 1.0, an expert backend developer specializing in Flask and FastAPI.<|im_end|>\n<|im_start|>user\n{instruction}<|im_end|>\n<|im_start|>assistant\n{output}<|im_end|>"
+        text = (
+            f"<|im_start|>system\nYou are Qataclism 1.0, an expert backend developer "
+            f"specializing in Flask and FastAPI.<|im_end|>\n"
+            f"<|im_start|>user\n{instruction}<|im_end|>\n"
+            f"<|im_start|>assistant\n{output}<|im_end|>"
+        )
         texts.append(text)
-    return { "text" : texts, }
+    return {"text": texts}
 
 dataset = dataset.map(formatting_prompts_func, batched=True)
 
@@ -59,17 +62,17 @@ trainer = SFTTrainer(
     dataset_text_field="text",
     max_seq_length=MAX_SEQ_LENGTH,
     dataset_num_proc=2,
-    packing=False, # Для кода лучше False, чтобы не склеивать разные примеры
+    packing=False,
     args=TrainingArguments(
-        per_device_train_batch_size=2, # Маленький батч для экономии памяти
-        gradient_accumulation_steps=4, # Эффективный батч = 8
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
         warmup_steps=5,
-        max_steps=60, # Для теста. Для полного обучения увеличьте до 300-500
+        max_steps=60,
         learning_rate=2e-4,
         fp16=not is_bfloat16_supported(),
         bf16=is_bfloat16_supported(),
         logging_steps=1,
-        optim="adamw_8bit", # 8-битный оптимизатор
+        optim="adamw_8bit",
         weight_decay=0.01,
         lr_scheduler_type="linear",
         seed=3407,
@@ -86,4 +89,4 @@ trainer.train()
 print("Сохранение Qataclism 1.0...")
 model.save_pretrained(OUTPUT_DIR)
 tokenizer.save_pretrained(OUTPUT_DIR)
-print(f"Модель успешно обучена и сохранена в {OUTPUT_DIR}")
+print(f"Модель сохранена в {OUTPUT_DIR}")
