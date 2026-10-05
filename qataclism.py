@@ -37,6 +37,8 @@ model = FastLanguageModel.get_peft_model(
 dataset = load_dataset(DATASET_NAME, split="train")
 
 # --- ФОРМАТИРОВАНИЕ ---
+print("Колонки датасета:", dataset.column_names)
+print("Пример данных:", dataset[0])
 def formatting_prompts_func(examples):
     # Подстраиваемся под реальные колонки датасета
     instructions = examples.get("task") or examples.get("instruction") or examples.get("prompt")
