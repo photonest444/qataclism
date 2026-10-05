@@ -1,18 +1,17 @@
 
 import os
-import torch
 from datasets import load_dataset
 from transformers import TrainingArguments
 from trl import SFTTrainer
 from unsloth import FastLanguageModel, is_bfloat16_supported
 
 # --- КОНФИГУРАЦИЯ QATACLISM 1.0 ---
-MODEL_NAME = "Qwen/Qwen2.5-Coder-0.5B-Instruct"  # Открытая модель, скачается без токена
+MODEL_NAME = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 DATASET_NAME = "Techta/backend-code-generator-dataset"
 OUTPUT_DIR = "./Qataclism-1.0"
-MAX_SEQ_LENGTH = 1024
+MAX_SEQ_LENGTH = 2048
 
-# --- ЗАГРУЗКА МОДЕЛИ (QLoRA) ---
+# --- ЗАГРУЗКА МОДЕЛИ ---
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=MODEL_NAME,
     max_seq_length=MAX_SEQ_LENGTH,
@@ -20,7 +19,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     load_in_4bit=True,
 )
 
-# --- НАСТРОЙКА LoRA ---
+# --- LoRA ---
 model = FastLanguageModel.get_peft_model(
     model,
     r=16,
@@ -33,12 +32,11 @@ model = FastLanguageModel.get_peft_model(
     random_state=3407,
 )
 
-# --- ЗАГРУЗКА ДАТАСЕТА ---
+# --- ДАТАСЕТ ---
 dataset = load_dataset(DATASET_NAME, split="train")
+print(f"Исходный размер: {len(dataset)}")
 
-# --- ФОРМАТИРОВАНИЕ ---
-print("Колонки датасета:", dataset.column_names)
-print("Пример данных:", dataset[0])
+# --- ФОРМАТИРОВАНИЕ (без фильтра по языку) ---
 def formatting_prompts_func(examples):
     texts = []
     for desc, reqs, files, framework, language in zip(
@@ -48,34 +46,49 @@ def formatting_prompts_func(examples):
         examples["framework"],
         examples["language"],
     ):
-        # Собираем только Python-файлы (если датасет смешанный)
-        if language != "python":
-            continue
-        
-        # Формируем "задачу" из описания и требований
-        task = f"Create a {framework} backend project.\n\nDescription: {desc}\n\nRequirements:\n" + "\n".join(f"- {r}" for r in reqs)
-        
-        # Формируем "ответ" из файлов кода
+        # Формируем задачу из описания и требований
+        task = (
+            f"Create a {framework} backend project.\n\n"
+            f"Language: {language}\n\n"
+            f"Description: {desc}\n\n"
+            f"Requirements:\n" + "\n".join(f"- {r}" for r in reqs)
+        )
+
+        # Собираем ВСЕ файлы кода (не только .py)
         code_parts = []
-        for filename, content in files.items():
-            if content and filename.endswith(".py"):
-                code_parts.append(f"### {filename}\n```python\n{content}\n```")
-        
+        if files:
+            for filename, content in files.items():
+                if content:
+                    # Определяем язык для подсветки
+                    ext = filename.split(".")[-1].lower()
+                    lang_map = {
+                        "py": "python", "js": "javascript", "ts": "typescript",
+                        "json": "json", "yml": "yaml", "yaml": "yaml",
+                        "md": "markdown", "txt": "text", "env": "text",
+                    }
+                    lang = lang_map.get(ext, "text")
+                    code_parts.append(f"### {filename}\n```{lang}\n{content}\n```")
+
         if not code_parts:
+            texts.append("")
             continue
-        
+
         output = "\n\n".join(code_parts)
-        
+
         text = (
-            f"<|im_start|>system\nYou are Qataclism 1.0, an expert backend developer specializing in Flask and FastAPI.<|im_end|>\n"
+            f"<|im_start|>system\nYou are Qataclism 1.0, an expert backend developer.<|im_end|>\n"
             f"<|im_start|>user\n{task}<|im_end|>\n"
             f"<|im_start|>assistant\n{output}<|im_end|>"
         )
         texts.append(text)
-    
+
     return {"text": texts}
 
 dataset = dataset.map(formatting_prompts_func, batched=True)
+
+# --- ФИЛЬТРАЦИЯ ПУСТЫХ (обязательно!) ---
+dataset = dataset.filter(lambda x: len(x["text"]) > 100)
+print(f"После фильтрации пустых: {len(dataset)}")
 
 # --- ТРЕНЕР ---
 trainer = SFTTrainer(
@@ -87,10 +100,10 @@ trainer = SFTTrainer(
     dataset_num_proc=2,
     packing=False,
     args=TrainingArguments(
-        per_device_train_batch_size=2,
+        per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         warmup_steps=5,
-        max_steps=60,
+        max_steps=150,
         learning_rate=2e-4,
         fp16=not is_bfloat16_supported(),
         bf16=is_bfloat16_supported(),
@@ -105,7 +118,7 @@ trainer = SFTTrainer(
 )
 
 # --- ЗАПУСК ---
-print("Запуск обучения Qataclism 1.0...")
+print("Запуск обучения Qataclism 1.0 (этап 1)...")
 trainer.train()
 
 # --- СОХРАНЕНИЕ ---
