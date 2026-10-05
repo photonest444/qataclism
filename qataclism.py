@@ -1,7 +1,7 @@
 
 import os
 from datasets import load_dataset
-from unsloth import FastLanguageModel, is_bfloat16_supported  # Импорт unsloth ПЕРВЫМ
+from unsloth import FastLanguageModel, is_bfloat16_supported
 from trl import SFTTrainer, SFTConfig
 
 # --- КОНФИГУРАЦИЯ QATACLISM 1.0 ---
@@ -84,14 +84,14 @@ dataset = dataset.map(formatting_prompts_func, batched=True)
 dataset = dataset.filter(lambda x: len(x["text"]) > 100)
 print(f"После фильтрации пустых: {len(dataset)}")
 
-# --- ТРЕНЕР (SFTConfig для dataset_text_field и max_seq_length) ---
+# --- ТРЕНЕР (SFTConfig) ---
 trainer = SFTTrainer(
     model=model,
-    processing_class=tokenizer,  # <-- ИСПРАВЛЕНО: tokenizer -> processing_class
+    processing_class=tokenizer,
     train_dataset=dataset,
-    args=SFTConfig(  # <-- ИСПРАВЛЕНО: SFTConfig вместо TrainingArguments
-        dataset_text_field="text",       # <-- Перемещено сюда
-        max_seq_length=MAX_SEQ_LENGTH,   # <-- Перемещено сюда
+    args=SFTConfig(
+        dataset_text_field="text",
+        max_seq_length=MAX_SEQ_LENGTH,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         warmup_steps=5,
@@ -109,12 +109,15 @@ trainer = SFTTrainer(
     ),
 )
 
-# --- ЗАПУСК ---
+# --- ЗАПУСК ОБУЧЕНИЯ ---
 print("Запуск обучения Qataclism 1.0 (этап 1)...")
 trainer.train()
 
-# --- СОХРАНЕНИЕ ---
-print("Сохранение Qataclism 1.0...")
-model.save_pretrained(OUTPUT_DIR)
-tokenizer.save_pretrained(OUTPUT_DIR)
-print(f"Модель сохранена в {OUTPUT_DIR}")
+# --- СОХРАНЕНИЕ В GGUF ---
+print("Экспорт Qataclism 1.0 в GGUF...")
+model.save_pretrained_gguf(
+    "Qataclism-1.0-GGUF",
+    tokenizer,
+    quantization_method="q4_k_m"  # Оптимальный баланс для 0.5B модели [citation:1]
+)
+print("Готово! Модель сохранена в папке Qataclism-1.0-GGUF")
