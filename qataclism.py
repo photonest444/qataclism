@@ -6,7 +6,7 @@ from trl import SFTTrainer
 from unsloth import FastLanguageModel, is_bfloat16_supported
 
 # --- КОНФИГУРАЦИЯ QATACLISM 1.0 ---
-MODEL_NAME = "huihui-ai/Qwen2.5-Code-0.5B-Instruct-abliterated" # Или "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+MODEL_NAME = "saiddutta69/Qwen2.5-Code-0.5B-Instruct-heretic" # Или "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 DATASET_NAME = "Techta/backend-code-generator-dataset"
 OUTPUT_DIR = "./Qataclism-1.0"
 MAX_SEQ_LENGTH = 1024 # Увеличим, чтобы модель видела больше контекста кода
