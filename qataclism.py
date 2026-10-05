@@ -36,7 +36,7 @@ model = FastLanguageModel.get_peft_model(
 dataset = load_dataset(DATASET_NAME, split="train")
 print(f"Исходный размер: {len(dataset)}")
 
-# --- ФОРМАТИРОВАНИЕ (без фильтра по языку) ---
+# --- ФОРМАТИРОВАНИЕ ---
 def formatting_prompts_func(examples):
     texts = []
     for desc, reqs, files, framework, language in zip(
@@ -46,7 +46,6 @@ def formatting_prompts_func(examples):
         examples["framework"],
         examples["language"],
     ):
-        # Формируем задачу из описания и требований
         task = (
             f"Create a {framework} backend project.\n\n"
             f"Language: {language}\n\n"
@@ -54,12 +53,10 @@ def formatting_prompts_func(examples):
             f"Requirements:\n" + "\n".join(f"- {r}" for r in reqs)
         )
 
-        # Собираем ВСЕ файлы кода (не только .py)
         code_parts = []
         if files:
             for filename, content in files.items():
                 if content:
-                    # Определяем язык для подсветки
                     ext = filename.split(".")[-1].lower()
                     lang_map = {
                         "py": "python", "js": "javascript", "ts": "typescript",
@@ -85,15 +82,13 @@ def formatting_prompts_func(examples):
     return {"text": texts}
 
 dataset = dataset.map(formatting_prompts_func, batched=True)
-
-# --- ФИЛЬТРАЦИЯ ПУСТЫХ (обязательно!) ---
 dataset = dataset.filter(lambda x: len(x["text"]) > 100)
 print(f"После фильтрации пустых: {len(dataset)}")
 
 # --- ТРЕНЕР ---
 trainer = SFTTrainer(
     model=model,
-    tokenizer=tokenizer,
+    processing_class=tokenizer,  # <-- ИСПРАВЛЕНО: tokenizer -> processing_class
     train_dataset=dataset,
     dataset_text_field="text",
     max_seq_length=MAX_SEQ_LENGTH,
