@@ -40,18 +40,39 @@ dataset = load_dataset(DATASET_NAME, split="train")
 print("Колонки датасета:", dataset.column_names)
 print("Пример данных:", dataset[0])
 def formatting_prompts_func(examples):
-    # Подстраиваемся под реальные колонки датасета
-    instructions = examples.get("task") or examples.get("instruction") or examples.get("prompt")
-    outputs = examples.get("solution") or examples.get("output") or examples.get("code")
     texts = []
-    for instruction, output in zip(instructions, outputs):
+    for desc, reqs, files, framework, language in zip(
+        examples["description"],
+        examples["requirements"],
+        examples["code_files"],
+        examples["framework"],
+        examples["language"],
+    ):
+        # Собираем только Python-файлы (если датасет смешанный)
+        if language != "python":
+            continue
+        
+        # Формируем "задачу" из описания и требований
+        task = f"Create a {framework} backend project.\n\nDescription: {desc}\n\nRequirements:\n" + "\n".join(f"- {r}" for r in reqs)
+        
+        # Формируем "ответ" из файлов кода
+        code_parts = []
+        for filename, content in files.items():
+            if content and filename.endswith(".py"):
+                code_parts.append(f"### {filename}\n```python\n{content}\n```")
+        
+        if not code_parts:
+            continue
+        
+        output = "\n\n".join(code_parts)
+        
         text = (
-            f"<|im_start|>system\nYou are Qataclism 1.0, an expert backend developer "
-            f"specializing in Flask and FastAPI.<|im_end|>\n"
-            f"<|im_start|>user\n{instruction}<|im_end|>\n"
+            f"<|im_start|>system\nYou are Qataclism 1.0, an expert backend developer specializing in Flask and FastAPI.<|im_end|>\n"
+            f"<|im_start|>user\n{task}<|im_end|>\n"
             f"<|im_start|>assistant\n{output}<|im_end|>"
         )
         texts.append(text)
+    
     return {"text": texts}
 
 dataset = dataset.map(formatting_prompts_func, batched=True)
