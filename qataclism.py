@@ -1,9 +1,8 @@
 
 import os
 from datasets import load_dataset
-from transformers import TrainingArguments
-from trl import SFTTrainer
-from unsloth import FastLanguageModel, is_bfloat16_supported
+from unsloth import FastLanguageModel, is_bfloat16_supported  # Импорт unsloth ПЕРВЫМ
+from trl import SFTTrainer, SFTConfig
 
 # --- КОНФИГУРАЦИЯ QATACLISM 1.0 ---
 MODEL_NAME = "Qwen/Qwen2.5-Coder-0.5B-Instruct"
@@ -85,16 +84,14 @@ dataset = dataset.map(formatting_prompts_func, batched=True)
 dataset = dataset.filter(lambda x: len(x["text"]) > 100)
 print(f"После фильтрации пустых: {len(dataset)}")
 
-# --- ТРЕНЕР ---
+# --- ТРЕНЕР (SFTConfig для dataset_text_field и max_seq_length) ---
 trainer = SFTTrainer(
     model=model,
     processing_class=tokenizer,  # <-- ИСПРАВЛЕНО: tokenizer -> processing_class
     train_dataset=dataset,
-    dataset_text_field="text",
-    max_seq_length=MAX_SEQ_LENGTH,
-    dataset_num_proc=2,
-    packing=False,
-    args=TrainingArguments(
+    args=SFTConfig(  # <-- ИСПРАВЛЕНО: SFTConfig вместо TrainingArguments
+        dataset_text_field="text",       # <-- Перемещено сюда
+        max_seq_length=MAX_SEQ_LENGTH,   # <-- Перемещено сюда
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         warmup_steps=5,
