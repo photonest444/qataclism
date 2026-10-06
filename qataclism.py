@@ -1,4 +1,4 @@
-%%writefile stage1_lotus.py
+
 import json
 from datasets import Dataset
 from unsloth import FastLanguageModel, is_bfloat16_supported
