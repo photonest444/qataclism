@@ -1,4 +1,4 @@
-
+%%writefile stage1_lotus.py
 import json
 from datasets import Dataset
 from unsloth import FastLanguageModel, is_bfloat16_supported
@@ -10,19 +10,18 @@ OUTPUT_DIR = "./Qataclism-Lotus-1.0-Stage1"
 MAX_SEQ_LENGTH = 2048
 SYSTEM_PROMPT = "You are Qataclism Lotus 1.0, a versatile AI assistant."
 
-# --- ЗАГРУЗКА МОДЕЛИ (bf16 LoRA, НЕ QLoRA) ---
-# Unsloth не рекомендует QLoRA для Qwen3.5 из-за потери качества [citation:4]
+# --- ЗАГРУЗКА МОДЕЛИ (bf16 LoRA) ---
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=MODEL_NAME,
     max_seq_length=MAX_SEQ_LENGTH,
     load_in_4bit=False,
-    load_in_16bit=True,  # bf16 LoRA (требует ~10 ГБ VRAM для 4B) [citation:4]
+    load_in_16bit=True,
     full_finetuning=False,
 )
 
 model = FastLanguageModel.get_peft_model(
     model,
-    r=32,  # Рекомендуемый ранг для Qwen3.5 [citation:1]
+    r=32,
     lora_alpha=64,
     lora_dropout=0,
     bias="none",
@@ -43,14 +42,11 @@ for line in lines:
     inst = obj.get("instruction", "")
     inp = obj.get("input", "")
     out = obj.get("output", "")
-    
+
     if not inst or not out:
         continue
-    
-    # Формируем задачу (аналогично вашему формату)
+
     task = f"{inst}\n{inp}".strip() if inp else inst
-    
-    # Формат чата Qwen (ChatML) с системным промптом
     text = (
         f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
         f"<|im_start|>user\n{task}<|im_end|>\n"
@@ -73,7 +69,7 @@ trainer = SFTTrainer(
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         warmup_steps=10,
-        num_train_epochs=3,  # Для 705 примеров можно 3 эпохи
+        num_train_epochs=1,  # <-- ОДНА ЭПОХА
         learning_rate=2e-4,
         fp16=not is_bfloat16_supported(),
         bf16=is_bfloat16_supported(),
@@ -88,7 +84,7 @@ trainer = SFTTrainer(
     ),
 )
 
-print("Запуск обучения Qataclism Lotus 1.0 (этап 1)...")
+print("Запуск обучения Qataclism Lotus 1.0 (этап 1, 1 эпоха)...")
 trainer.train()
 
 # --- СОХРАНЕНИЕ LoRA-АДАПТЕРА ---
