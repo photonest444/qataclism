@@ -3,22 +3,22 @@ from datasets import load_dataset
 from unsloth import FastLanguageModel, is_bfloat16_supported
 from trl import SFTTrainer, SFTConfig
 
-# --- КОНФИГУРАЦИЯ QATACLISM ROSE 4B ---
-MODEL_NAME = "Qwen/Qwen3.5-4B"
-OUTPUT_DIR = "./Qataclism-Rose-4B-Stage1"
-MAX_SEQ_LENGTH = 2048
+# --- КОНФИГУРАЦИЯ QATACLISM ROSE 7B ---
+MODEL_NAME = "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"  # 4-бит для T4
+OUTPUT_DIR = "./Qataclism-Rose-7B-Stage1"
+MAX_SEQ_LENGTH = 2048  # Qwen2.5-7B нормально тянет 2048 на T4 [citation:3]
 
-# --- ЗАГРУЗКА (bf16 LoRA, НЕ QLoRA) ---
+# --- ЗАГРУЗКА МОДЕЛИ (QLoRA) ---
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=MODEL_NAME,
     max_seq_length=MAX_SEQ_LENGTH,
-    load_in_4bit=False,      # QLoRA не рекомендуется для Qwen3.5
-    load_in_16bit=True,      # bf16 LoRA
+    dtype=None,
+    load_in_4bit=True,  # QLoRA для экономии VRAM
 )
 
 model = FastLanguageModel.get_peft_model(
     model,
-    r=16,
+    r=16,  # Стандартный ранг для QLoRA [citation:3][citation:15]
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                     "gate_proj", "up_proj", "down_proj"],
     lora_alpha=16,
@@ -58,7 +58,7 @@ def formatting_prompts_func(examples):
             continue
         output = "\n\n".join(code_parts)
         text = (
-            f"<|im_start|>system\nYou are Qataclism Rose 4B, an expert backend developer.<|im_end|>\n"
+            f"<|im_start|>system\nYou are Qataclism 1.0 Rose 7B, an expert backend developer.<|im_end|>\n"
             f"<|im_start|>user\n{task}<|im_end|>\n"
             f"<|im_start|>assistant\n{output}<|im_end|>"
         )
@@ -77,10 +77,10 @@ trainer = SFTTrainer(
     args=SFTConfig(
         dataset_text_field="text",
         max_seq_length=MAX_SEQ_LENGTH,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
+        per_device_train_batch_size=1,  # T4-safe для 7B [citation:9]
+        gradient_accumulation_steps=8,  # Эффективный батч = 8
         warmup_steps=5,
-        num_train_epochs=3,
+        num_train_epochs=3,  # 3 эпохи на 202 примера — разумно [citation:6]
         learning_rate=2e-4,
         fp16=not is_bfloat16_supported(),
         bf16=is_bfloat16_supported(),
@@ -94,7 +94,7 @@ trainer = SFTTrainer(
     ),
 )
 
-print("Запуск обучения Qataclism Rose 4B (этап 1)...")
+print("Запуск обучения Qataclism 1.0 Rose 7B (этап 1)...")
 trainer.train()
 
 # --- СОХРАНЕНИЕ LoRA-АДАПТЕРА ---
