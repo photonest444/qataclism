@@ -1,12 +1,14 @@
 
 import json
+import os
 from datasets import Dataset
 from unsloth import FastLanguageModel, is_bfloat16_supported
 from trl import SFTTrainer, SFTConfig
 
-# --- КОНФИГУРАЦИЯ QATACLISM LOTUS 1.0 (ЭТАП 1) ---
+# --- КОНФИГУРАЦИЯ QATACLISM LOTUS 1.0 ---
 MODEL_NAME = "Qwen/Qwen3.5-4B"
 OUTPUT_DIR = "./Qataclism-Lotus-1.0-Stage1"
+GGUF_DIR = "Qataclism-Lotus-1.0-GGUF"
 MAX_SEQ_LENGTH = 2048
 SYSTEM_PROMPT = "You are Qataclism Lotus 1.0, a versatile AI assistant."
 
@@ -42,10 +44,8 @@ for line in lines:
     inst = obj.get("instruction", "")
     inp = obj.get("input", "")
     out = obj.get("output", "")
-
     if not inst or not out:
         continue
-
     task = f"{inst}\n{inp}".strip() if inp else inst
     text = (
         f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
@@ -58,7 +58,7 @@ dataset = Dataset.from_list([{"text": t} for t in texts])
 dataset = dataset.filter(lambda x: len(x["text"]) > 50)
 print(f"После фильтрации: {len(dataset)} примеров")
 
-# --- ТРЕНЕР ---
+# --- ТРЕНЕР (1 ЭПОХА) ---
 trainer = SFTTrainer(
     model=model,
     processing_class=tokenizer,
@@ -69,7 +69,7 @@ trainer = SFTTrainer(
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         warmup_steps=10,
-        num_train_epochs=1,  # <-- ОДНА ЭПОХА
+        num_train_epochs=1,
         learning_rate=2e-4,
         fp16=not is_bfloat16_supported(),
         bf16=is_bfloat16_supported(),
@@ -84,11 +84,19 @@ trainer = SFTTrainer(
     ),
 )
 
-print("Запуск обучения Qataclism Lotus 1.0 (этап 1, 1 эпоха)...")
+print("Запуск обучения Qataclism Lotus 1.0 (1 эпоха)...")
 trainer.train()
 
 # --- СОХРАНЕНИЕ LoRA-АДАПТЕРА ---
 print("Сохранение адаптера...")
 model.save_pretrained(OUTPUT_DIR)
 tokenizer.save_pretrained(OUTPUT_DIR)
-print(f"Готово! Адаптер сохранён в {OUTPUT_DIR}")
+
+# --- ЭКСПОРТ В GGUF С КВАНТОВАНИЕМ ---
+print("Экспорт в GGUF (Q4_K_M)...")
+model.save_pretrained_gguf(
+    GGUF_DIR,
+    tokenizer,
+    quantization_method="q4_k_m"
+)
+print(f"Готово! GGUF-модель сохранена в {GGUF_DIR}")
