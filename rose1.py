@@ -3,22 +3,23 @@ from datasets import load_dataset
 from unsloth import FastLanguageModel, is_bfloat16_supported
 from trl import SFTTrainer, SFTConfig
 
-# --- КОНФИГУРАЦИЯ QATACLISM ROSE 7B ---
-MODEL_NAME = "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"  # 4-бит для T4
-OUTPUT_DIR = "./Qataclism-Rose-7B-Stage1"
-MAX_SEQ_LENGTH = 2048  # Qwen2.5-7B нормально тянет 2048 на T4 [citation:3]
+# --- КОНФИГУРАЦИЯ QATACLISM 1.0 ROSE 7B ---
+MODEL_NAME = "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"
+OUTPUT_DIR = "./Qataclism-1.0-Rose-7B-Stage1"
+GGUF_DIR = "Qataclism-1.0-Rose-7B-Stage1-GGUF"
+MAX_SEQ_LENGTH = 2048
 
 # --- ЗАГРУЗКА МОДЕЛИ (QLoRA) ---
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=MODEL_NAME,
     max_seq_length=MAX_SEQ_LENGTH,
     dtype=None,
-    load_in_4bit=True,  # QLoRA для экономии VRAM
+    load_in_4bit=True,
 )
 
 model = FastLanguageModel.get_peft_model(
     model,
-    r=16,  # Стандартный ранг для QLoRA [citation:3][citation:15]
+    r=16,
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                     "gate_proj", "up_proj", "down_proj"],
     lora_alpha=16,
@@ -77,10 +78,10 @@ trainer = SFTTrainer(
     args=SFTConfig(
         dataset_text_field="text",
         max_seq_length=MAX_SEQ_LENGTH,
-        per_device_train_batch_size=1,  # T4-safe для 7B [citation:9]
-        gradient_accumulation_steps=8,  # Эффективный батч = 8
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=8,
         warmup_steps=5,
-        num_train_epochs=3,  # 3 эпохи на 202 примера — разумно [citation:6]
+        num_train_epochs=3,
         learning_rate=2e-4,
         fp16=not is_bfloat16_supported(),
         bf16=is_bfloat16_supported(),
@@ -98,7 +99,16 @@ print("Запуск обучения Qataclism 1.0 Rose 7B (этап 1)...")
 trainer.train()
 
 # --- СОХРАНЕНИЕ LoRA-АДАПТЕРА ---
-print("Сохранение адаптера...")
+print("Сохранение LoRA-адаптера...")
 model.save_pretrained(OUTPUT_DIR)
 tokenizer.save_pretrained(OUTPUT_DIR)
-print(f"Готово! Адаптер сохранён в {OUTPUT_DIR}")
+print(f"Адаптер сохранён в {OUTPUT_DIR}")
+
+# --- ЭКСПОРТ В GGUF ---
+print("Экспорт Qataclism 1.0 Rose 7B в GGUF...")
+model.save_pretrained_gguf(
+    GGUF_DIR,
+    tokenizer,
+    quantization_method="q4_k_m"  # Оптимальный баланс размера и качества
+)
+print(f"Готово! GGUF-модель сохранена в {GGUF_DIR}")
